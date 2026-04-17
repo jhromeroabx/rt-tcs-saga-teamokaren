@@ -1,5 +1,3 @@
--- Consultas de apoyo para entrevista técnica y demostración de dominio SQL.
-
 -- 1) Conteo de pagos por estado y monto agregado.
 SELECT
     status,

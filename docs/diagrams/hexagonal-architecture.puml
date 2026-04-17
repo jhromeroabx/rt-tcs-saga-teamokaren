@@ -1,0 +1,96 @@
+@startuml
+!theme plain
+left to right direction
+skinparam backgroundColor white
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam ArrowColor #4B5563
+skinparam packageBorderColor #111827
+skinparam componentBorderColor #111827
+skinparam componentBackgroundColor #F9FAFB
+skinparam databaseBackgroundColor #FEF3C7
+skinparam databaseBorderColor #92400E
+skinparam actorBorderColor #111827
+skinparam actorBackgroundColor #DBEAFE
+skinparam rectangle {
+  BorderColor #111827
+  BackgroundColor #FFFFFF
+}
+
+actor Client as client
+cloud "External Services" as externals {
+  component "Order Service\n(Feign Client)" as orderSvc
+  component "Payment Gateway" as paymentSvc
+  component "Inventory Service" as inventorySvc
+  component "Delivery Service" as deliverySvc
+}
+
+database "H2 / SQL\npayment_saga\npayment_item\npayment_saga_step\nidempotency_request" as db
+
+rectangle "Payments Saga Microservice" {
+  package "Infrastructure" as infrastructure {
+    component "PaymentsController" as controller
+    component "GlobalExceptionHandler" as handler
+    component "PaymentSagaRepositoryAdapter" as repositoryAdapter
+    component "IdempotencyRepositoryAdapter" as idempotencyAdapter
+    component "OrderServiceClient" as orderClient
+    component "Security / Config\nJackson / OpenAPI" as config
+  }
+
+  package "Application" as application {
+    component "CreatePaymentSagaUseCase" as createUseCase
+    component "GetPaymentSagaUseCase" as getUseCase
+    component "RequestPaymentCompensationUseCase" as compensationUseCase
+    component "IdempotencyService" as idempotencyService
+    component "PaymentSagaResponseMapper" as mapper
+  }
+
+  package "Domain" as domain {
+    component "PaymentSaga\nPaymentStep\nPaymentItem\nPaymentMethod\nShippingAddress" as model
+    component "Ports\nPaymentSagaRepositoryPort\nIdempotencyPort" as ports
+    component "Business Exceptions\nPaymentNotFoundException\nInvalidSagaStateException\nIdempotencyConflictException" as exceptions
+  }
+}
+
+client --> controller : HTTP / OpenAPI
+controller --> createUseCase : createPaymentSaga()
+controller --> getUseCase : getPaymentSagaById()
+controller --> compensationUseCase : requestPaymentCompensation()
+controller --> idempotencyService : hash / replay / save
+controller --> handler
+
+createUseCase --> ports
+getUseCase --> ports
+compensationUseCase --> ports
+createUseCase --> mapper
+getUseCase --> mapper
+compensationUseCase --> mapper
+idempotencyService --> ports
+
+ports <.. repositoryAdapter
+ports <.. idempotencyAdapter
+repositoryAdapter --> db
+idempotencyAdapter --> db
+
+createUseCase --> orderClient : create order
+orderClient --> orderSvc
+createUseCase --> paymentSvc : process payment
+createUseCase --> inventorySvc : update inventory
+createUseCase --> deliverySvc : schedule delivery
+compensationUseCase --> orderClient : cancel order
+compensationUseCase --> paymentSvc : reverse payment
+compensationUseCase --> inventorySvc : reverse inventory
+compensationUseCase --> deliverySvc : cancel delivery
+
+application --> model
+application --> exceptions
+config ..> controller
+config ..> application
+
+note bottom of application
+WebFlux expone endpoints reactivos.
+Las operaciones bloqueantes se encapsulan
+tras puertos/adapters o boundedElastic.
+end note
+@enduml

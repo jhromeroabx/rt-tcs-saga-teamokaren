@@ -1,0 +1,71 @@
+@startuml
+hide footbox
+autonumber
+
+actor C as Client
+participant PC as "Payments\nController"
+participant ID as "Idempotency"
+participant CU as "Create Saga"
+participant MU as "Compensate Saga"
+participant RP as "Saga Repo"
+participant OC as "Order Client"
+participant OS as "Order Svc"
+participant PS as "Payment Svc"
+participant IS as "Inventory Svc"
+participant DS as "Delivery Svc"
+
+== Crear pago ==
+C -> PC : POST /payments
+PC -> ID : hash + replay?
+alt replay
+  ID --> PC : cached response
+  PC --> C : 200 replay
+else nuevo request
+  PC -> CU : execute()
+  CU -> OC : createOrder()
+  OC -> OS : create
+  OS --> OC : ok
+  CU -> PS : process
+  PS --> CU : ok
+  CU -> IS : reserve
+  IS --> CU : ok
+  CU -> DS : schedule
+  DS --> CU : ok
+  CU -> RP : save completed
+  RP --> CU : saga
+  CU --> PC : response
+  PC -> ID : save
+  PC --> C : 202 + Location
+end
+
+== Compensar ==
+C -> PC : POST /payments/{id}/compensations
+PC -> ID : hash + replay?
+alt replay
+  ID --> PC : cached response
+  PC --> C : 200 replay
+else nueva compensacion
+  PC -> MU : execute()
+  MU -> RP : findById()
+  RP --> MU : saga
+  alt ya compensada
+    MU --> PC : InvalidSagaState
+    PC --> C : 422
+  else compensable
+    MU -> DS : cancel
+    DS --> MU : ok
+    MU -> IS : reverse
+    IS --> MU : ok
+    MU -> PS : reverse
+    PS --> MU : ok
+    MU -> OC : cancelOrder()
+    OC -> OS : cancel
+    OS --> OC : ok
+    MU -> RP : save compensated
+    RP --> MU : saga
+    MU --> PC : response
+    PC -> ID : save
+    PC --> C : 202
+  end
+end
+@enduml

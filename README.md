@@ -36,10 +36,18 @@ El proyecto sigue arquitectura hexagonal (Ports & Adapters):
 - config: configuración transversal
 
 ## Diagrama Arquitectura Hexagonal
-![Diagrama Arquitectura Hexagonal](Diagrama_arquitectura_hexagonal.png)
+![Diagrama Arquitectura Hexagonal](docs/diagrams/diagrama-architecture.png)
 
 ## Diagrama Secuencia Saga de Pago
 El flujo objetivo del dominio es: crear orden, procesar pago, actualizar inventario y coordinar entrega, con compensaciones ante fallos.
+
+![Diagrama Secuencia Saga de Pago](docs/diagrams/diagrama-secuencia.png)
+
+Fuentes PlantUML:
+- `docs/diagrams/hexagonal-architecture.puml`
+- `docs/diagrams/payment-saga-sequence.puml`
+
+Si aún no generas las imágenes `.png`, puedes renderizarlas con PlantUML y luego el `README.md` las mostrará automáticamente.
 
 ## Funcionalidades
 - Inicio de pagos orquestados con patrón Saga
