@@ -1,7 +1,6 @@
 package org.teamokaren.infrastructure.adapter.in.web;
 
 import java.time.OffsetDateTime;
-import org.openapitools.jackson.nullable.JsonNullable;
 import org.teamokaren.domain.exception.IdempotencyConflictException;
 import org.teamokaren.domain.exception.InvalidSagaStateException;
 import org.teamokaren.domain.exception.PaymentNotFoundException;
@@ -59,10 +58,29 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public Mono<ResponseEntity<ErrorResponse>> handleGeneric(Exception ex) {
+        Throwable cause = rootCause(ex);
+        if (cause instanceof PaymentNotFoundException paymentNotFoundException) {
+            return handlePaymentNotFound(paymentNotFoundException);
+        }
+        if (cause instanceof IdempotencyConflictException idempotencyConflictException) {
+            return handleIdempotencyConflict(idempotencyConflictException);
+        }
+        if (cause instanceof InvalidSagaStateException invalidSagaStateException) {
+            return handleInvalidSagaState(invalidSagaStateException);
+        }
+
         return Mono.just(
                 ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(error("INTERNAL_ERROR", "Error interno del servidor", ex.getMessage()))
+                        .body(error("INTERNAL_ERROR", "Error interno del servidor", cause.getMessage()))
         );
+    }
+
+    private Throwable rootCause(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     private String mapMessage(FieldError error) {
@@ -78,7 +96,7 @@ public class GlobalExceptionHandler {
     private ErrorResponse error(String code, String message, String detail) {
         ErrorResponse errorResponse = new ErrorResponse(code, message, OffsetDateTime.now());
         if (detail != null) {
-            errorResponse.setDetail(JsonNullable.of(detail));
+            errorResponse.setDetail(detail);
         }
         return errorResponse;
     }
