@@ -72,7 +72,3 @@ El repositorio incluye:
 - `sonar-project.properties` para análisis de calidad
 - manifiestos `k8s/` pensados para AKS
 - ejemplo de Azure Key Vault CSI vía `SecretProviderClass`
-
-## Cómo vender la solución
-
-Presenta este proyecto como una base profesional de microservicio backend orientado a integraciones. No hace falta afirmar que todo está productivo; basta con demostrar que las decisiones técnicas están bien encaminadas, justificadas y listas para evolucionar.

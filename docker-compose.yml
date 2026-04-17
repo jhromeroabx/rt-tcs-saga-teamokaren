@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   payments-saga-service:
-    build: .
+    image: ${PAYMENTS_SAGA_IMAGE:-ghcr.io/jhromeroabx/rt-tcs-saga-teamokaren:latest}
     container_name: payments-saga-service
     ports:
       - "8080:8080"

@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.teamokaren.domain.exception.IdempotencyConflictException;
 import org.teamokaren.domain.model.IdempotencyRecord;
+import org.teamokaren.domain.port.PaymentSagaRepositoryPort;
 import org.teamokaren.domain.port.IdempotencyPort;
 import org.teamokaren.payments.api.model.PaymentSagaResponse;
 
@@ -20,6 +21,8 @@ import org.teamokaren.payments.api.model.PaymentSagaResponse;
 public class IdempotencyService {
 
     private final IdempotencyPort idempotencyPort;
+    private final PaymentSagaRepositoryPort paymentSagaRepository;
+    private final PaymentSagaResponseMapper paymentSagaResponseMapper;
     private final ObjectMapper objectMapper;
 
     public Optional<PaymentSagaResponse> findReplay(String requestId, String requestHash) {
@@ -31,7 +34,9 @@ public class IdempotencyService {
                     try {
                         return objectMapper.readValue(record.getResponseBody(), PaymentSagaResponse.class);
                     } catch (JsonProcessingException exception) {
-                        throw new RuntimeException("No fue posible deserializar la respuesta idempotente", exception);
+                        return paymentSagaRepository.findById(record.getPaymentId())
+                                .map(paymentSagaResponseMapper::toResponse)
+                                .orElseThrow(() -> new RuntimeException("No fue posible reconstruir la respuesta idempotente", exception));
                     }
                 });
     }
