@@ -6,6 +6,7 @@ info:
     API RESTful para iniciar y consultar pagos orquestados con patrón Saga.
     Todos los endpoints aceptan y retornan JSON.
     La creación del pago es idempotente mediante el header `X-Request-Id`.
+    Flujo recomendado: crear pago, consultar estado y compensar manualmente solo si negocio necesita revertir la operación.
 
 servers:
   - url: /
@@ -24,6 +25,7 @@ paths:
       description: |
         Registra una solicitud de pago y dispara la orquestación Saga.
         El flujo esperado es: crear orden, procesar pago, reservar inventario y programar entrega.
+        Responde `202 Accepted` porque la operación queda aceptada para seguimiento posterior con el endpoint de consulta.
       parameters:
         - in: header
           name: X-Request-Id
@@ -95,7 +97,9 @@ paths:
         - Payments
       operationId: getPaymentSagaById
       summary: Consultar estado de una saga de pago
-      description: Retorna el estado consolidado del pago, incluyendo el detalle de pasos ejecutados y compensaciones.
+      description: |
+        Retorna el estado consolidado del pago, incluyendo el detalle de pasos ejecutados y compensaciones.
+        Debe usarse después de crear la saga para conocer si terminó, falló o fue compensada.
       parameters:
         - in: path
           name: paymentId
@@ -133,6 +137,7 @@ paths:
       description: |
         Solicita la ejecución de transacciones compensatorias cuando la saga requiera reversión manual.
         Ejemplo: revertir pago, liberar inventario o cancelar entrega.
+        Este endpoint se usa cuando la saga ya existe y una decisión operativa o de negocio exige deshacer los pasos completados.
       parameters:
         - in: path
           name: paymentId
