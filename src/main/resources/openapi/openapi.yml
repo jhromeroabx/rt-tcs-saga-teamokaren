@@ -1,0 +1,494 @@
+openapi: 3.0.3
+info:
+  title: Payment API
+  version: 1.0.0
+  description: |
+    API RESTful para iniciar y consultar pagos orquestados con patrón Saga.
+    Todos los endpoints aceptan y retornan JSON.
+    La creación del pago es idempotente mediante el header `X-Request-Id`.
+
+servers:
+  - url: /
+
+tags:
+  - name: Payments
+    description: Operaciones para iniciar y consultar pagos bajo patrón Saga
+
+paths:
+  /api/v1/payments:
+    post:
+      tags:
+        - Payments
+      operationId: createPaymentSaga
+      summary: Iniciar una saga de pago
+      description: |
+        Registra una solicitud de pago y dispara la orquestación Saga.
+        El flujo esperado es: crear orden, procesar pago, reservar inventario y programar entrega.
+      parameters:
+        - in: header
+          name: X-Request-Id
+          required: true
+          description: Clave única para garantizar idempotencia en la creación del pago
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 100
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentSagaCreateRequest'
+      responses:
+        '202':
+          description: Saga aceptada para procesamiento
+          headers:
+            Location:
+              description: URL para consultar el estado de la saga creada
+              schema:
+                type: string
+                example: /api/v1/payments/9f3d2d68-7e78-44d5-b2a4-29681083d7db
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentSagaResponse'
+        '200':
+          description: Respuesta devuelta por reintento idempotente
+          headers:
+            X-Idempotent-Replay:
+              description: Indica que la respuesta proviene del almacenamiento idempotente
+              schema:
+                type: string
+                example: 'true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentSagaResponse'
+        '400':
+          description: Datos inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: La clave idempotente ya existe con un payload diferente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: No fue posible iniciar la saga por reglas de negocio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error interno
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/payments/{paymentId}:
+    get:
+      tags:
+        - Payments
+      operationId: getPaymentSagaById
+      summary: Consultar estado de una saga de pago
+      description: Retorna el estado consolidado del pago, incluyendo el detalle de pasos ejecutados y compensaciones.
+      parameters:
+        - in: path
+          name: paymentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Identificador único del pago
+      responses:
+        '200':
+          description: Estado del pago encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentSagaResponse'
+        '404':
+          description: Pago no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error interno
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/payments/{paymentId}/compensations:
+    post:
+      tags:
+        - Payments
+      operationId: requestPaymentCompensation
+      summary: Solicitar compensación manual de una saga
+      description: |
+        Solicita la ejecución de transacciones compensatorias cuando la saga requiera reversión manual.
+        Ejemplo: revertir pago, liberar inventario o cancelar entrega.
+      parameters:
+        - in: path
+          name: paymentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Identificador único del pago
+        - in: header
+          name: X-Request-Id
+          required: true
+          description: Clave idempotente de la solicitud de compensación
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 100
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompensationRequest'
+      responses:
+        '202':
+          description: Compensación aceptada para procesamiento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentSagaResponse'
+        '200':
+          description: Reintento idempotente de compensación
+          headers:
+            X-Idempotent-Replay:
+              description: Indica que la respuesta proviene del almacenamiento idempotente
+              schema:
+                type: string
+                example: 'true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentSagaResponse'
+        '404':
+          description: Pago no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: La clave idempotente ya existe con un payload diferente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: La compensación no se puede ejecutar en el estado actual
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error interno
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    PaymentSagaCreateRequest:
+      type: object
+      required:
+        - orderId
+        - customerId
+        - currency
+        - totalAmount
+        - paymentMethod
+        - items
+        - shippingAddress
+      properties:
+        orderId:
+          type: string
+          maxLength: 50
+          example: ORD-100045
+        customerId:
+          type: string
+          maxLength: 50
+          example: CUS-9001
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          example: PEN
+        totalAmount:
+          type: number
+          format: double
+          minimum: 0.01
+          example: 149.90
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethodRequest'
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/OrderItemRequest'
+        shippingAddress:
+          $ref: '#/components/schemas/ShippingAddressRequest'
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            channel: web
+            campaign: cyber-days
+
+    PaymentMethodRequest:
+      type: object
+      required:
+        - type
+        - token
+      properties:
+        type:
+          type: string
+          enum:
+            - CARD
+            - TRANSFER
+            - WALLET
+        token:
+          type: string
+          maxLength: 150
+          example: tok_01HZX9J4P3A1
+        cardLast4:
+          type: string
+          minLength: 4
+          maxLength: 4
+          example: '4242'
+        installments:
+          type: integer
+          minimum: 1
+          example: 1
+
+    OrderItemRequest:
+      type: object
+      required:
+        - sku
+        - quantity
+        - unitPrice
+      properties:
+        sku:
+          type: string
+          maxLength: 40
+          example: SKU-1000
+        name:
+          type: string
+          maxLength: 120
+          example: Audífonos Bluetooth
+        quantity:
+          type: integer
+          minimum: 1
+          example: 2
+        unitPrice:
+          type: number
+          format: double
+          minimum: 0.01
+          example: 74.95
+
+    ShippingAddressRequest:
+      type: object
+      required:
+        - street
+        - city
+        - country
+        - postalCode
+      properties:
+        street:
+          type: string
+          maxLength: 180
+          example: Av. Primavera 123
+        city:
+          type: string
+          maxLength: 80
+          example: Lima
+        state:
+          type: string
+          maxLength: 80
+          example: Lima
+        country:
+          type: string
+          maxLength: 2
+          example: PE
+        postalCode:
+          type: string
+          maxLength: 12
+          example: '15046'
+        reference:
+          type: string
+          maxLength: 180
+          example: Torre 2, recepción
+
+    CompensationRequest:
+      type: object
+      required:
+        - reason
+        - requestedBy
+      properties:
+        reason:
+          type: string
+          maxLength: 255
+          example: Inventario inconsistente en ERP externo
+        requestedBy:
+          type: string
+          maxLength: 80
+          example: backoffice-ops
+
+    PaymentSagaResponse:
+      type: object
+      required:
+        - paymentId
+        - sagaId
+        - orderId
+        - customerId
+        - currency
+        - totalAmount
+        - status
+        - currentStep
+        - createdAt
+        - updatedAt
+        - steps
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        sagaId:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+        customerId:
+          type: string
+        currency:
+          type: string
+          example: PEN
+        totalAmount:
+          type: number
+          format: double
+          example: 149.90
+        status:
+          $ref: '#/components/schemas/PaymentSagaStatus'
+        currentStep:
+          $ref: '#/components/schemas/SagaStepName'
+        failureReason:
+          type: string
+          nullable: true
+        compensationReason:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/SagaStepStatus'
+
+    SagaStepStatus:
+      type: object
+      required:
+        - step
+        - service
+        - sequence
+        - direction
+        - status
+      properties:
+        step:
+          $ref: '#/components/schemas/SagaStepName'
+        service:
+          type: string
+          example: inventory-service
+        sequence:
+          type: integer
+          minimum: 1
+          example: 3
+        direction:
+          type: string
+          enum:
+            - FORWARD
+            - COMPENSATION
+        status:
+          $ref: '#/components/schemas/SagaStepExecutionStatus'
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        errorCode:
+          type: string
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+
+    PaymentSagaStatus:
+      type: string
+      enum:
+        - RECEIVED
+        - PROCESSING_PAYMENT
+        - RESERVING_INVENTORY
+        - SCHEDULING_DELIVERY
+        - COMPLETED
+        - FAILED
+        - COMPENSATING
+        - COMPENSATED
+
+    SagaStepName:
+      type: string
+      enum:
+        - CREATE_ORDER
+        - PROCESS_PAYMENT
+        - UPDATE_INVENTORY
+        - DELIVER_ORDER
+        - CANCEL_ORDER
+        - REVERSE_PAYMENT
+        - REVERSE_INVENTORY
+        - CANCEL_DELIVERY
+
+    SagaStepExecutionStatus:
+      type: string
+      enum:
+        - PENDING
+        - IN_PROGRESS
+        - COMPLETED
+        - FAILED
+        - COMPENSATED
+        - SKIPPED
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - mensaje
+        - timestamp
+      properties:
+        code:
+          type: string
+          example: IDEMPOTENCY_CONFLICT
+        mensaje:
+          type: string
+          example: La clave X-Request-Id ya fue utilizada con un payload distinto.
+        detail:
+          type: string
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time

@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-saga
+  labels:
+    app: payments-saga
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payments-saga
+  template:
+    metadata:
+      labels:
+        app: payments-saga
+    spec:
+      serviceAccountName: payments-saga-sa
+      containers:
+        - name: payments-saga
+          image: acr-example.azurecr.io/payments-saga:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: aks
+            - name: DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: payments-saga-secrets
+                  key: db-url
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: payments-saga-secrets
+                  key: db-user
+            - name: DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: payments-saga-secrets
+                  key: db-pass
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: payments-saga-secrets
+                  key: jwt-secret
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 200m
+              memory: 384Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+          volumeMounts:
+            - name: secrets-store-inline
+              mountPath: /mnt/secrets-store
+              readOnly: true
+      volumes:
+        - name: secrets-store-inline
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: payments-saga-kv
